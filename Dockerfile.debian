@@ -1,0 +1,82 @@
+FROM    scratch
+
+ADD     ubuntu-jammy-oci-amd64-root.tar.gz /
+
+ENV     DEBIAN_FRONTEND=noninteractive
+LABEL   maintainer="support@vairogs.com"
+ENV     container=docker
+
+COPY    01_nodoc /etc/dpkg/dpkg.cfg.d/01_nodoc
+COPY    02_nocache /etc/apt/apt.conf.d/02_nocache
+COPY    compress /etc/initramfs-tools/conf.d/compress
+
+COPY    ./src /usr/src/node-master
+COPY    ./shopt.sh /usr/src/shopt.sh
+
+RUN     \
+        apt-get update \
+&&      apt-get upgrade -y \
+&&      apt-get install -y --no-install-recommends bash curl ca-certificates
+
+SHELL   ["/bin/bash", "-o", "pipefail", "-c"]
+
+RUN     \
+        set -eux \
+&&      mkdir -p /home/vairogs \
+&&      addgroup --system --gid 1000 vairogs \
+&&      adduser --system --uid 1000 --disabled-password --shell /bin/bash --ingroup vairogs vairogs \
+&&      update-ca-certificates \
+&&      echo 'alias ll="ls -lah"' >> /home/vairogs/.bashrc \
+&&      echo 'alias vim="vi"' >> /home/vairogs/.bashrc \
+&&      echo 'alias ll="ls -lah"' >> /root/.bashrc \
+&&      echo 'alias vim="vi"' >> /root/.bashrc \
+&&      mkdir --parents /var/www/html \
+&&      chown -R vairogs:vairogs /home/vairogs \
+&&      chown vairogs:vairogs /var/www/html \
+&&      apt-get update \
+&&      apt-get upgrade -y \
+&&      apt-get install -y --no-install-recommends liburing2 liburing-dev vim wget git python3 python3-dev make g++ binutils-gold gcc \
+&&      cd /usr/src/node-master \
+&&      ./configure --dest-os=linux --dest-cpu=x86_64 --without-node-snapshot \
+&&      make -j "$(expr $(nproc) / 2)" V= \
+&&      make install \
+&&      corepack enable \
+&&      npm i -g npm@next-8 \
+&&      npm i -g modclean \
+&&      npm i -g n \
+&&      wget -O /usr/local/bin/wait-for-it https://raw.githubusercontent.com/vishnubob/wait-for-it/master/wait-for-it.sh \
+&&      chmod +x /usr/local/bin/wait-for-it \
+&&      cd / \
+&&      modclean -f -D /usr/local/lib/node_modules -r \
+&&      modclean -f -D /usr/local/lib/node_modules/npm/node_modules -r \
+&&      modclean -f -D /usr/local/lib/node_modules/modclean/node_modules -r \
+&&      npm cache clean -g --force \
+&&      chmod +x /usr/src/shopt.sh \
+&&      /usr/src/shopt.sh \
+&&      apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false liburing2 python3-dev g++ binutils-gold gcc \
+&&      apt-get autoremove -y \
+&&      rm -rf \
+            /var/cache/* \
+            /tmp/* \
+            /root/.node-gyp \
+            /usr/local/lib/node_modules/npm/man \
+            /usr/local/lib/node_modules/npm/docs \
+            /usr/local/lib/node_modules/npm/html \
+            /usr/share/man \
+            /usr/share/doc \
+            /usr/local/share/man \
+            /usr/local/share/doc \
+            /usr/local/share/locale \
+            /usr/src \
+            /root/.npm \
+            /root/.cache \
+            /var/lib/apt/lists/* \
+            /usr/share/locale \
+            /*.deb \
+&&      chown -R vairogs:vairogs /usr/local/lib/node_modules
+
+WORKDIR /var/www/html
+
+USER    vairogs
+
+CMD ["sh", "-c", "/bin/bash"]
